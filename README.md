@@ -23,7 +23,6 @@ This is the Android port of the jedToolKit iOS app, built with **Flutter** and n
 | **jedRAMChecker** | Live memory metrics: footprint, resident, virtual and available budget, plus a Normal / Warning / Critical pressure level |
 | **jedDiskChecker** | Storage space info plus sequential write and read speed tests (MB/s), with history |
 | Panic Analyzer | *Coming soon* |
-| OS Security | *Coming soon* |
 | Terminal Lite | *Coming soon* |
 
 ### jedHWChecker tests
