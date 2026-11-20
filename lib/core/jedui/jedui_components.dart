@@ -287,7 +287,11 @@ class JedGroupCard extends StatelessWidget {
 class JedSection extends StatelessWidget {
   final InfoSection section;
 
-  const JedSection({super.key, required this.section});
+  /// When set, every row glyph uses this color (e.g. the Settings accent)
+  /// instead of the per-label colors from [jedFieldStyle].
+  final Color? tint;
+
+  const JedSection({super.key, required this.section, this.tint});
 
   @override
   Widget build(BuildContext context) {
@@ -333,7 +337,7 @@ class JedSection extends StatelessWidget {
           child: Column(
             children: [
               for (var i = 0; i < fields.length; i++) ...[
-                JedInfoRow(field: fields[i]),
+                JedInfoRow(field: fields[i], tint: tint),
                 if (i != fields.length - 1)
                   Container(
                     height: 0.5,
@@ -354,7 +358,10 @@ class JedSection extends StatelessWidget {
 class JedInfoRow extends StatelessWidget {
   final InfoField field;
 
-  const JedInfoRow({super.key, required this.field});
+  /// Overrides the glyph color from [jedFieldStyle] when non-null.
+  final Color? tint;
+
+  const JedInfoRow({super.key, required this.field, this.tint});
 
   double? get _progress {
     final value = field.value;
@@ -387,7 +394,8 @@ class JedInfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final available = field.status == DataStatus.available;
-    final (icon, tint) = jedFieldStyle(field.label);
+    final (icon, styleTint) = jedFieldStyle(field.label);
+    final glyphTint = tint ?? styleTint;
     final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
     final progress = _progress;
 
@@ -405,7 +413,7 @@ class JedInfoRow extends StatelessWidget {
                 child: Icon(
                   icon,
                   size: 18,
-                  color: CupertinoDynamicColor.resolve(tint, context),
+                  color: CupertinoDynamicColor.resolve(glyphTint, context),
                 ),
               ),
               const SizedBox(width: 16),

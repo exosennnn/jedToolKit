@@ -17,7 +17,7 @@ class _BatteryInfoScreenState extends State<BatteryInfoScreen> {
   String _powerSource = 'Internal Battery Power';
   bool _lowPowerMode = false;
   String _thermalState = 'Normal';
-  List> _accessories = const [];
+  List<Map<String, dynamic>> _accessories = const [];
   Timer? _pollTimer;
 
   @override
@@ -304,7 +304,7 @@ class _BatteryInfoScreenState extends State<BatteryInfoScreen> {
           ),
           if (bat != null)
             HwStatusPill(
-              icon: CupertinoIcons.battery_75,
+              icon: CupertinoIcons.battery_75_percent,
               text: '$bat%',
               color: green,
               active: true,

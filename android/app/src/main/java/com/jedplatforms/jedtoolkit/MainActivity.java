@@ -36,6 +36,7 @@ public class MainActivity extends FlutterFragmentActivity { // CHANGED
         ScreenChannel.register(this, flutterEngine);
         HWCheckerChannel.register(this, flutterEngine);
         HwMediaBiometricChannel.register(this, flutterEngine);
+        PanicAnalyzerChannel.register(this, flutterEngine);   // <-- add this
 
         // ---------------- Phone info + RAM ----------------
         ramCollector = new RamMetricsCollector(this);

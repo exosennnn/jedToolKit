@@ -8,6 +8,7 @@ import '../../core/settings/app_settings.dart';
 import '../benchmark/benchmark_screen.dart';
 import '../diskchecker/disk_checker_screen.dart';
 import '../hwchecker/hw_checker_screen.dart';
+import '../panicanalyzer/panic_analyzer_screen.dart';
 import '../phoneinfo/phone_info_screen.dart';
 import '../ramchecker/ram_checker_screen.dart';
 import '../settings/settings_screen.dart';
@@ -18,6 +19,7 @@ Widget _buildHwChecker(BuildContext _) => const HwCheckerScreen();
 Widget _buildRamChecker(BuildContext _) => const RamCheckerScreen();
 Widget _buildDiskChecker(BuildContext _) => const DiskCheckerScreen();
 Widget _buildBenchmark(BuildContext _) => const BenchmarkScreen();
+Widget _buildPanicAnalyzer(BuildContext _) => const PanicAnalyzerScreen();
 
 class _Module {
   final String id;
@@ -120,23 +122,16 @@ class _HomeScreenState extends State<HomeScreen> {
     _Module(
       'panic',
       'Panic Analyzer',
-      'Coming soon',
+      'Crash history, ANR traces & app logs',
       CupertinoIcons.doc_text_fill,
       CupertinoColors.systemRed,
       null,
-    ),
-    _Module(
-      'security',
-      'OS Security',
-      'Coming soon',
-      CupertinoIcons.lock_fill,
-      CupertinoColors.systemTeal,
-      null,
+      screenBuilder: _buildPanicAnalyzer,
     ),
     _Module(
       'terminal',
       'Terminal Lite',
-      'Coming soon',
+      'Coming soon Version 2.0',
       CupertinoIcons.command,
       CupertinoColors.systemBlue,
       null,
