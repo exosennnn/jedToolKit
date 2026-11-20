@@ -2,24 +2,22 @@ enum BenchmarkKind { cpuSingle, cpuMulti, memory, gpu }
 
 extension BenchmarkKindInfo on BenchmarkKind {
   String get title => switch (this) {
-        BenchmarkKind.cpuSingle => 'CPU · Single-thread',
-        BenchmarkKind.cpuMulti => 'CPU · Multi-thread',
-        BenchmarkKind.memory => 'Memory · Copy bandwidth',
-        BenchmarkKind.gpu => 'GPU · Raster workload',
-      };
+    BenchmarkKind.cpuSingle => 'CPU · Single-core',
+    BenchmarkKind.cpuMulti => 'CPU · Multi-core',
+    BenchmarkKind.memory => 'Memory · Bandwidth',
+    BenchmarkKind.gpu => 'GPU · Raster + GL ES + OpenCL',
+  };
 
-  String get unit => switch (this) {
-        BenchmarkKind.cpuSingle || BenchmarkKind.cpuMulti => 'Mnum/s',
-        BenchmarkKind.memory => 'MiB/s',
-        BenchmarkKind.gpu => 'fps',
-      };
+  /// Every test now reports a jedBenchmark score (2500 = baseline device).
+  String get unit => 'pts';
 
   String get description => switch (this) {
-        BenchmarkKind.cpuSingle => 'Prime sieve on one thread, answer verified',
-        BenchmarkKind.cpuMulti => 'Same sieve on every core at once',
-        BenchmarkKind.memory => 'Repeated copies of a 64 MiB buffer',
-        BenchmarkKind.gpu => 'Animated blurred shapes, Flutter raster time',
-      };
+    BenchmarkKind.cpuSingle => '16 real-world tasks, one at a time',
+    BenchmarkKind.cpuMulti =>
+      'The 8 Geekbench 7 multi-core workloads, split across all cores',
+    BenchmarkKind.memory => 'Sequential write, read and random access',
+    BenchmarkKind.gpu => '7 raster scenes plus OpenGL ES and OpenCL compute',
+  };
 }
 
 class BenchmarkResult {
@@ -51,7 +49,7 @@ class BenchmarkResult {
     if (!ok) return 'Failed';
     final v = value;
     if (v == null) return '—';
-    return '${v.toStringAsFixed(v >= 100 ? 0 : 1)} ${kind.unit}';
+    return '${v.round()} ${kind.unit}';
   }
 
   String get detailText {
@@ -62,20 +60,20 @@ class BenchmarkResult {
   }
 
   Map<String, dynamic> toJson() => {
-        'kind': kind.name,
-        'timestamp': timestamp.toIso8601String(),
-        'ok': ok,
-        'value': value,
-        'details': details,
-        'error': error,
-      };
+    'kind': kind.name,
+    'timestamp': timestamp.toIso8601String(),
+    'ok': ok,
+    'value': value,
+    'details': details,
+    'error': error,
+  };
 
   factory BenchmarkResult.fromJson(Map<String, dynamic> j) => BenchmarkResult(
-        kind: BenchmarkKind.values.byName(j['kind'] as String),
-        timestamp: DateTime.parse(j['timestamp'] as String),
-        ok: j['ok'] as bool,
-        value: (j['value'] as num?)?.toDouble(),
-        details: Map<String, String>.from(j['details'] as Map),
-        error: j['error'] as String?,
-      );
+    kind: BenchmarkKind.values.byName(j['kind'] as String),
+    timestamp: DateTime.parse(j['timestamp'] as String),
+    ok: j['ok'] as bool,
+    value: (j['value'] as num?)?.toDouble(),
+    details: Map<String, String>.from(j['details'] as Map),
+    error: j['error'] as String?,
+  );
 }

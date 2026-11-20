@@ -10,45 +10,40 @@ enum DataStatus {
 
 extension DataStatusLabel on DataStatus {
   String get label => switch (this) {
-        DataStatus.available => 'Available',
-        DataStatus.restricted => 'Restricted',
-        DataStatus.unsupported => 'Unavailable on this device/API',
-        DataStatus.permissionRequired => 'Permission required',
-        DataStatus.notTested => 'Not tested',
-        DataStatus.error => 'Error',
-      };
+    DataStatus.available => 'Available',
+    DataStatus.restricted => 'Hidden by Android',
+    DataStatus.unsupported => 'Not available on this phone',
+    DataStatus.permissionRequired => 'Needs your permission',
+    DataStatus.notTested => 'Not checked yet',
+    DataStatus.error => "Couldn't read this",
+  };
 }
 
 /// Categories shown in the filter bar, in display order.
-enum InfoCategory {
-  overview,
-  processor,
-  memoryStorage,
-  displayGraphics,
-  battery,
-  hardware,
-}
+enum InfoCategory { device, cpu, gpu, system, battery, thermal, sensors }
 
 extension InfoCategoryLabel on InfoCategory {
   String get title => switch (this) {
-        InfoCategory.overview => 'Overview',
-        InfoCategory.processor => 'Processor',
-        InfoCategory.memoryStorage => 'Memory & Storage',
-        InfoCategory.displayGraphics => 'Display & Graphics',
-        InfoCategory.battery => 'Battery',
-        InfoCategory.hardware => 'Hardware',
-      };
+    InfoCategory.device => 'Device',
+    InfoCategory.cpu => 'CPU',
+    InfoCategory.gpu => 'GPU',
+    InfoCategory.system => 'System',
+    InfoCategory.battery => 'Battery',
+    InfoCategory.thermal => 'Thermal',
+    InfoCategory.sensors => 'Sensors',
+  };
 }
 
 /// Maps a section title from the Java collector to a display category.
 InfoCategory categoryForSection(String title) => switch (title) {
-      'Device' || 'Android' => InfoCategory.overview,
-      'System on Chip' || 'CPU' => InfoCategory.processor,
-      'Memory' || 'Storage' => InfoCategory.memoryStorage,
-      'Display' || 'Graphics' => InfoCategory.displayGraphics,
-      'Battery' => InfoCategory.battery,
-      _ => InfoCategory.hardware,
-    };
+  'Device' => InfoCategory.device,
+  'CPU' => InfoCategory.cpu,
+  'GPU' => InfoCategory.gpu,
+  'Battery' => InfoCategory.battery,
+  'Thermal' => InfoCategory.thermal,
+  'Sensors' => InfoCategory.sensors,
+  _ => InfoCategory.system,
+};
 
 class InfoField {
   final String label;

@@ -10,6 +10,20 @@ class JedTheme {
     barBackgroundColor: CupertinoColors.systemGroupedBackground,
   );
 
+  /// Theme driven by Settings: [brightness] null = follow the system,
+  /// [primary] is the chosen accent color.
+  static CupertinoThemeData build({
+    Brightness? brightness,
+    required Color primary,
+  }) {
+    return CupertinoThemeData(
+      brightness: brightness,
+      primaryColor: primary,
+      scaffoldBackgroundColor: CupertinoColors.systemGroupedBackground,
+      barBackgroundColor: CupertinoColors.systemGroupedBackground,
+    );
+  }
+
   /// Status colors shared by every module.
   static Color statusColor(BuildContext context, DataStatus status) {
     switch (status) {

@@ -12,10 +12,18 @@ import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
 import android.hardware.display.DisplayManager;
+import android.opengl.EGL14;
+import android.opengl.EGLConfig;
+import android.opengl.EGLContext;
+import android.opengl.EGLDisplay;
+import android.opengl.EGLSurface;
+import android.opengl.GLES20;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Environment;
+import android.os.PowerManager;
 import android.os.StatFs;
+import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Size;
 import android.view.Display;
@@ -57,31 +65,200 @@ public final class DeviceInfoCollector {
     public List<Map<String, Object>> collect() {
         List<Map<String, Object>> sections = new ArrayList<>();
         sections.add(buildSection("Device", this::deviceFields));
-        sections.add(buildSection("Android", this::androidFields));
-        sections.add(buildSection("System on Chip", this::socFields));
         sections.add(buildSection("CPU", this::cpuFields));
-        sections.add(buildSection("Memory", this::memoryFields));
-        sections.add(buildSection("Storage", this::storageFields));
-        sections.add(buildSection("Display", this::displayFields));
+        sections.add(buildSection("GPU", this::graphicsFields));
+        sections.add(buildSection("System", this::systemFields));
         sections.add(buildSection("Battery", this::batteryFields));
-        sections.add(buildSection("Graphics", this::graphicsFields));
-        sections.add(buildSection("Cameras", this::cameraFields));
+        sections.add(buildSection("Thermal", this::thermalFields));
         sections.add(buildSection("Sensors", this::sensorFields));
-        sections.add(buildSection("Features", this::featureFields));
         return sections;
+    }
+
+    // ---------- friendly names ----------
+
+    private static String capitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    private static String prop(String key) {
+        try {
+            Process p = new ProcessBuilder("getprop", key).redirectErrorStream(true).start();
+            try (BufferedReader r = new BufferedReader(
+                    new java.io.InputStreamReader(p.getInputStream()))) {
+                String line = r.readLine();
+                return line == null || line.trim().isEmpty() ? null : line.trim();
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Small lookup for common Samsung model numbers whose marketing name isn't in a property. */
+    private static String samsungName(String model) {
+        if (model == null) return null;
+        String m = model.toUpperCase(Locale.US);
+        String[][] known = {
+                {"SM-F721", "Galaxy Z Flip4"}, {"SM-F711", "Galaxy Z Flip3"},
+                {"SM-F731", "Galaxy Z Flip5"}, {"SM-F741", "Galaxy Z Flip6"},
+                {"SM-F936", "Galaxy Z Fold4"}, {"SM-F926", "Galaxy Z Fold3"},
+                {"SM-F946", "Galaxy Z Fold5"}, {"SM-F956", "Galaxy Z Fold6"},
+        };
+        for (String[] k : known) if (m.startsWith(k[0])) return k[1];
+        return null;
+    }
+
+    /** Best-effort marketing name, e.g. "Galaxy Z Flip4". Falls back to the model number. */
+    private String marketingName() {
+        String name = prop("ro.product.marketname");
+        if (name == null) name = prop("ro.config.marketing_name");
+        if (name == null) name = samsungName(Build.MODEL);
+        if (name == null) {
+            try {
+                // User-set phone name; usually the marketing name unless renamed.
+                name = Settings.Global.getString(context.getContentResolver(), "device_name");
+            } catch (Exception ignored) { }
+        }
+        if (name == null || name.isEmpty()) name = Build.MODEL;
+        return name;
+    }
+
+    /** Turns a chip code such as SM8475 into "Snapdragon 8+ Gen 1". Returns null if unknown. */
+    private static String chipName(String code) {
+        if (code == null) return null;
+        String c = code.trim().toUpperCase(Locale.US);
+        String[][] map = {
+                // Qualcomm Snapdragon
+                {"SM8150", "Snapdragon 855"}, {"SM8250", "Snapdragon 865"},
+                {"SM8350", "Snapdragon 888"}, {"SM8450", "Snapdragon 8 Gen 1"},
+                {"SM8475", "Snapdragon 8+ Gen 1"}, {"SM8550", "Snapdragon 8 Gen 2"},
+                {"SM8650", "Snapdragon 8 Gen 3"}, {"SM8750", "Snapdragon 8 Elite"},
+                {"SM7325", "Snapdragon 778G"}, {"SM7450", "Snapdragon 7 Gen 1"},
+                {"SM7475", "Snapdragon 7+ Gen 2"}, {"SM7550", "Snapdragon 7 Gen 3"},
+                {"SM6375", "Snapdragon 695"}, {"SM6450", "Snapdragon 6 Gen 1"},
+                {"SM6225", "Snapdragon 680"},
+                // Samsung Exynos
+                {"S5E9925", "Exynos 2200"}, {"S5E9945", "Exynos 2400"},
+                {"S5E8825", "Exynos 1280"}, {"S5E8535", "Exynos 1330"},
+                // MediaTek Dimensity
+                {"MT6893", "Dimensity 1200"}, {"MT6983", "Dimensity 9000"},
+                {"MT6985", "Dimensity 9200"}, {"MT6989", "Dimensity 9300"},
+                {"MT6877", "Dimensity 900"},
+                // Google Tensor
+                {"GS101", "Google Tensor"}, {"GS201", "Google Tensor G2"},
+                {"GS301", "Google Tensor G3"}, {"GS401", "Google Tensor G4"},
+        };
+        for (String[] e : map) if (c.startsWith(e[0])) return e[1];
+        return null;
+    }
+
+    /** "Qualcomm Snapdragon 8+ Gen 1", or "Qualcomm SM9999" if the code isn't known. */
+    private String fullChipName() {
+        String maker = null;
+        String model = null;
+        if (Build.VERSION.SDK_INT >= 31) {
+            maker = Build.SOC_MANUFACTURER;
+            model = Build.SOC_MODEL;
+        }
+        String friendly = chipName(model);
+        if (friendly == null) friendly = chipName(Build.HARDWARE);
+        if (friendly == null) friendly = chipName(Build.BOARD);
+
+        String brand = null;
+        if (friendly != null) {
+            if (friendly.startsWith("Snapdragon")) brand = "Qualcomm";
+            else if (friendly.startsWith("Exynos")) brand = "Samsung";
+            else if (friendly.startsWith("Dimensity")) brand = "MediaTek";
+            else if (friendly.startsWith("Google")) brand = null;
+            return brand == null ? friendly : brand + " " + friendly;
+        }
+        // Unknown code: show what the device reports instead of guessing.
+        boolean hasModel = model != null && !model.isEmpty() && !Build.UNKNOWN.equalsIgnoreCase(model);
+        boolean hasMaker = maker != null && !maker.isEmpty() && !Build.UNKNOWN.equalsIgnoreCase(maker);
+        if (hasModel) return (hasMaker ? maker + " " : "") + model;
+        return Build.HARDWARE;
+    }
+
+    // ---------- OpenGL (for the real GPU name) ----------
+
+    private String[] glInfo;
+    private boolean glQueried;
+
+    /** Reads GL_RENDERER / GL_VENDOR / GL_VERSION from a throwaway 1x1 pbuffer context. */
+    private String[] queryGl() {
+        if (glQueried) return glInfo;
+        glQueried = true;
+
+        EGLDisplay dpy = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+        if (dpy == null || dpy == EGL14.EGL_NO_DISPLAY) return null;
+        int[] ver = new int[2];
+        if (!EGL14.eglInitialize(dpy, ver, 0, ver, 1)) return null;
+
+        EGLSurface surf = EGL14.EGL_NO_SURFACE;
+        EGLContext ctx = EGL14.EGL_NO_CONTEXT;
+        try {
+            int[] cfgAttr = {
+                    EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                    EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+                    EGL14.EGL_NONE};
+            EGLConfig[] cfgs = new EGLConfig[1];
+            int[] n = new int[1];
+            if (!EGL14.eglChooseConfig(dpy, cfgAttr, 0, cfgs, 0, 1, n, 0) || n[0] == 0) return null;
+
+            int[] ctxAttr = {EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE};
+            ctx = EGL14.eglCreateContext(dpy, cfgs[0], EGL14.EGL_NO_CONTEXT, ctxAttr, 0);
+            int[] surfAttr = {EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE};
+            surf = EGL14.eglCreatePbufferSurface(dpy, cfgs[0], surfAttr, 0);
+            if (!EGL14.eglMakeCurrent(dpy, surf, surf, ctx)) return null;
+
+            glInfo = new String[]{
+                    GLES20.glGetString(GLES20.GL_RENDERER),
+                    GLES20.glGetString(GLES20.GL_VENDOR),
+                    GLES20.glGetString(GLES20.GL_VERSION)};
+            return glInfo;
+        } catch (RuntimeException e) {
+            return null;
+        } finally {
+            EGL14.eglMakeCurrent(dpy, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE,
+                    EGL14.EGL_NO_CONTEXT);
+            if (surf != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(dpy, surf);
+            if (ctx != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(dpy, ctx);
+            // Deliberately no eglTerminate: Flutter shares this display.
+        }
     }
 
     // ---------- sections ----------
 
     private List<Map<String, Object>> deviceFields() {
         List<Map<String, Object>> f = new ArrayList<>();
-        f.add(value("Manufacturer", Build.MANUFACTURER, null));
-        f.add(value("Brand", Build.BRAND, null));
-        f.add(value("Model", Build.MODEL, null));
+        // Quick glance: name, maker, memory, storage.
+        f.add(value("Model name", marketingName(), null));
+        f.add(value("Manufacturer", capitalize(Build.MANUFACTURER), null));
+        f.add(value("Model number", Build.MODEL, null));
+
+        ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+        am.getMemoryInfo(mi);
+        f.add(field("Total memory", formatBytes(mi.totalMem), AVAILABLE, null));
+        f.add(field("Available memory", formatBytes(mi.availMem), AVAILABLE,
+                "Changes constantly as apps open and close."));
+
+        StatFs s = new StatFs(Environment.getDataDirectory().getPath());
+        f.add(field("Total storage", formatBytes(s.getTotalBytes()), AVAILABLE, null));
+        f.add(field("Available storage", formatBytes(s.getAvailableBytes()), AVAILABLE, null));
+        return f;
+    }
+
+    /** Android build, kernel, display, cameras and feature flags. */
+    private List<Map<String, Object>> systemFields() throws Exception {
+        List<Map<String, Object>> f = new ArrayList<>(androidFields());
         f.add(value("Device codename", Build.DEVICE,
                 "Internal device name, often different from the marketing name."));
-        f.add(value("Product", Build.PRODUCT, null));
+        f.add(value("Brand", Build.BRAND, null));
         f.add(value("Board", Build.BOARD, null));
+        f.addAll(displayFields());
+        f.addAll(cameraFields());
+        f.addAll(featureFields());
         return f;
     }
 
@@ -96,22 +273,17 @@ public final class DeviceInfoCollector {
         return f;
     }
 
-    private List<Map<String, Object>> socFields() {
-        List<Map<String, Object>> f = new ArrayList<>();
-        if (Build.VERSION.SDK_INT >= 31) {
-            f.add(value("SoC manufacturer", Build.SOC_MANUFACTURER, null));
-            f.add(value("SoC model", Build.SOC_MODEL, null));
-        } else {
-            f.add(field("SoC model", null, UNSUPPORTED,
-                    "Requires Android 12 (API 31) or newer."));
-        }
-        f.add(value("Hardware", Build.HARDWARE, "Platform name reported by the kernel."));
-        return f;
-    }
-
     private List<Map<String, Object>> cpuFields() {
         List<Map<String, Object>> f = new ArrayList<>();
         int cores = Runtime.getRuntime().availableProcessors();
+
+        String code = Build.VERSION.SDK_INT >= 31 ? Build.SOC_MODEL : null;
+        f.add(value("Processor", fullChipName(),
+                "Name matched from the chip code" + (code != null ? " (" + code + ")." : ".")));
+        if (Build.VERSION.SDK_INT >= 31) {
+            f.add(value("Chip code", Build.SOC_MODEL, null));
+        }
+        f.add(value("Hardware", Build.HARDWARE, "Platform name reported by the kernel."));
 
         f.add(value("Architecture", System.getProperty("os.arch"), null));
         f.add(field("Online cores", String.valueOf(cores), AVAILABLE,
@@ -162,31 +334,6 @@ public final class DeviceInfoCollector {
                         i == 0 ? "Current clock. It changes with load and temperature." : null));
             }
         }
-        return f;
-    }
-
-    private List<Map<String, Object>> memoryFields() {
-        List<Map<String, Object>> f = new ArrayList<>();
-        ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
-        ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
-        am.getMemoryInfo(mi);
-
-        f.add(field("Total memory", formatBytes(mi.totalMem), AVAILABLE,
-                "Total device memory reported by Android."));
-        f.add(field("Available memory", formatBytes(mi.availMem), AVAILABLE,
-                "Memory Android can give to apps right now. It changes constantly."));
-        f.add(field("Low-memory state", mi.lowMemory ? "Yes" : "No", AVAILABLE, null));
-        f.add(field("App heap limit", am.getMemoryClass() + " MB", AVAILABLE,
-                "Standard heap limit for this app. Large-heap apps get more."));
-        return f;
-    }
-
-    private List<Map<String, Object>> storageFields() {
-        List<Map<String, Object>> f = new ArrayList<>();
-        StatFs s = new StatFs(Environment.getDataDirectory().getPath());
-        f.add(field("Internal total", formatBytes(s.getTotalBytes()), AVAILABLE,
-                "Size of the data partition, as seen by this app."));
-        f.add(field("Internal free", formatBytes(s.getAvailableBytes()), AVAILABLE, null));
         return f;
     }
 
@@ -283,6 +430,15 @@ public final class DeviceInfoCollector {
             }
         }
 
+        String[] gl = queryGl();
+        if (gl != null && gl[0] != null) {
+            f.add(value("GPU", gl[0], "Name reported by the graphics driver."));
+            f.add(value("GPU vendor", gl[1], null));
+            f.add(value("OpenGL ES driver", gl[2], null));
+        } else {
+            f.add(field("GPU", null, RESTRICTED,
+                    "The graphics driver did not report a name."));
+        }
         f.add(value("OpenGL ES version", glEs, null));
         f.add(vkLevel >= 0
                 ? field("Vulkan hardware level", String.valueOf(vkLevel), AVAILABLE,
@@ -294,9 +450,69 @@ public final class DeviceInfoCollector {
                                 vkVersion >> 22, (vkVersion >> 12) & 0x3ff, vkVersion & 0xfff),
                         AVAILABLE, null)
                 : field("Vulkan version", null, UNSUPPORTED, null));
-        f.add(field("GPU model", null, UNSUPPORTED,
-                "Reading the GPU name needs an OpenGL context. Not included in this version."));
         return f;
+    }
+
+    private List<Map<String, Object>> thermalFields() {
+        List<Map<String, Object>> f = new ArrayList<>();
+        PowerManager pm = context.getSystemService(PowerManager.class);
+
+        if (Build.VERSION.SDK_INT >= 29 && pm != null) {
+            f.add(field("Thermal status", thermalStatus(pm.getCurrentThermalStatus()), AVAILABLE,
+                    "How hot Android considers the phone. None means no throttling."));
+        } else {
+            f.add(field("Thermal status", null, UNSUPPORTED, "Requires Android 10 (API 29) or newer."));
+        }
+
+        if (Build.VERSION.SDK_INT >= 30 && pm != null) {
+            float headroom = pm.getThermalHeadroom(10);
+            f.add(Float.isNaN(headroom)
+                    ? field("Thermal headroom", null, UNSUPPORTED,
+                            "This device does not report thermal headroom.")
+                    : field("Thermal headroom", String.format(Locale.US, "%.0f%%", headroom * 100),
+                            AVAILABLE,
+                            "Forecast 10 seconds ahead. 100% is where Android starts throttling."));
+        } else {
+            f.add(field("Thermal headroom", null, UNSUPPORTED, "Requires Android 11 (API 30) or newer."));
+        }
+
+        Intent bi = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        int temp = bi == null ? Integer.MIN_VALUE
+                : bi.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Integer.MIN_VALUE);
+        f.add(temp == Integer.MIN_VALUE
+                ? field("Battery temperature", null, UNSUPPORTED, null)
+                : field("Battery temperature", String.format(Locale.US, "%.1f °C", temp / 10.0),
+                        AVAILABLE, null));
+
+        // Kernel thermal zones are usually blocked for apps; show whatever is readable.
+        int shown = 0;
+        for (int i = 0; i < 40 && shown < 8; i++) {
+            String base = "/sys/class/thermal/thermal_zone" + i;
+            String type = readLine(base + "/type");
+            Long raw = parseLong(readLine(base + "/temp"));
+            if (type == null || raw == null) continue;
+            double c = Math.abs(raw) >= 1000 ? raw / 1000.0 : raw;
+            f.add(field(type, String.format(Locale.US, "%.1f °C", c), AVAILABLE,
+                    shown == 0 ? "Kernel thermal zone sensors." : null));
+            shown++;
+        }
+        if (shown == 0) {
+            f.add(field("Thermal zones", null, RESTRICTED, NOT_READABLE_NOTE));
+        }
+        return f;
+    }
+
+    private static String thermalStatus(int s) {
+        switch (s) {
+            case 0: return "None";
+            case 1: return "Light";
+            case 2: return "Moderate";
+            case 3: return "Severe";
+            case 4: return "Critical";
+            case 5: return "Emergency";
+            case 6: return "Shutdown";
+            default: return "Unknown";
+        }
     }
 
     private List<Map<String, Object>> cameraFields() {
